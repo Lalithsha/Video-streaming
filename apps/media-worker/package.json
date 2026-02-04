@@ -1,0 +1,16 @@
+{
+  "name": "@video-streaming/media-worker",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "mediasoup": "^3.14.14"
+  },
+  "devDependencies": {
+    "tsx": "^4.15.7",
+    "typescript": "^5.5.4"
+  }
+}
