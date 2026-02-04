@@ -16,7 +16,8 @@ type Peer = {
 };
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-const signalingUrl = process.env.NEXT_PUBLIC_SIGNALING_URL ?? "http://localhost:4001";
+const signalingUrl =
+  process.env.NEXT_PUBLIC_SIGNALING_URL ?? "http://localhost:4001";
 
 export default function HomePage() {
   const { data: session } = useSession();
@@ -35,7 +36,7 @@ export default function HomePage() {
     const response = await fetch(`${apiUrl}/rooms`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: roomTitle || "Live class" })
+      body: JSON.stringify({ title: roomTitle || "Live class" }),
     });
     if (!response.ok) {
       return;
