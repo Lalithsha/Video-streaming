@@ -4,7 +4,7 @@ import { Providers } from "./providers";
 
 export const metadata = {
   title: "Creator Studio",
-  description: "Live classes with MediaSoup"
+  description: "Live classes with MediaSoup",
 };
 
 type RootLayoutProps = {
