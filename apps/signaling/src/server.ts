@@ -1,10 +1,13 @@
 import { randomUUID } from "crypto";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import { getToken } from "next-auth/jwt";
 
 const port = Number(process.env.SIGNALING_PORT ?? "4001");
 const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
 const mediaWorkerUrl = process.env.MEDIA_WORKER_URL ?? "";
+const authRequired = (process.env.AUTH_REQUIRED ?? "false") === "true";
+const authSecret = process.env.NEXTAUTH_SECRET;
 
 const startedAt = new Date();
 
@@ -101,6 +104,12 @@ type RoomState = {
 
 const rooms = new Map<string, RoomState>();
 
+type SocketAuth = {
+  userId: string;
+  email?: string | null;
+  name?: string | null;
+};
+
 const getRoomState = (roomId: string) => {
   const existing = rooms.get(roomId);
   if (existing) return existing;
@@ -116,6 +125,32 @@ const sanitizeRole = (value: unknown): Role => {
 
 const sanitizeText = (value: unknown, fallback: string) =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
+
+const resolveAuth = async (socket: import("socket.io").Socket) => {
+  if (!authRequired) return null;
+  if (!authSecret) return null;
+  const authToken =
+    typeof socket.handshake.auth?.token === "string"
+      ? socket.handshake.auth.token
+      : undefined;
+  const authorizationHeader = socket.handshake.headers.authorization;
+  const bearerToken =
+    typeof authorizationHeader === "string" ? authorizationHeader : undefined;
+  const token = await getToken({
+    req: {
+      headers: {
+        authorization: authToken ? `Bearer ${authToken}` : bearerToken
+      }
+    } as never,
+    secret: authSecret
+  });
+  if (!token?.sub) return null;
+  return {
+    userId: token.sub,
+    email: typeof token.email === "string" ? token.email : null,
+    name: typeof token.name === "string" ? token.name : null
+  } satisfies SocketAuth;
+};
 
 const fetchRtpCapabilities = async (roomId: string) => {
   if (!mediaWorkerUrl) return null;
@@ -135,14 +170,35 @@ const fetchRtpCapabilities = async (roomId: string) => {
 };
 
 io.on("connection", (socket) => {
+  resolveAuth(socket)
+    .then((auth) => {
+      if (authRequired && !auth) {
+        socket.emit("error", "Unauthorized");
+        socket.disconnect();
+        return;
+      }
+      socket.data.auth = auth;
+    })
+    .catch(() => {
+      if (authRequired) {
+        socket.emit("error", "Unauthorized");
+        socket.disconnect();
+      }
+    });
+
   socket.on("room:join", async (payload, callback) => {
+    if (authRequired && !socket.data.auth) {
+      callback?.({ ok: false, error: "Unauthorized" });
+      return;
+    }
     const roomId = sanitizeText(payload?.roomId, "");
     if (!roomId) {
       callback?.({ ok: false, error: "Missing roomId" });
       return;
     }
-    const userId = sanitizeText(payload?.userId, socket.id);
-    const displayName = sanitizeText(payload?.displayName, userId);
+    const auth = socket.data.auth as SocketAuth | undefined;
+    const userId = auth?.userId ?? sanitizeText(payload?.userId, socket.id);
+    const displayName = sanitizeText(payload?.displayName, auth?.name ?? userId);
     const role = sanitizeRole(payload?.role);
 
     socket.join(roomId);

@@ -7,6 +7,7 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "next-auth": "^4.24.7",
     "socket.io": "^4.7.5"
   },
   "devDependencies": {

@@ -254,10 +254,14 @@ packages/
 Initial scaffolding is in place to start development:
 - Turborepo workspace and base TypeScript config.
 - Next.js app (apps/web) with NextAuth auth route.
-- Socket.IO signaling server (apps/signaling).
+- Socket.IO signaling server (apps/signaling) with optional NextAuth JWT validation.
 - MediaSoup worker entry point (apps/media-worker).
 - BullMQ worker skeleton (apps/worker).
-- Express API placeholder (apps/api).
+- Express API backed by Prisma models (apps/api).
+
+Priority 0 completion notes:
+- Prisma schema + database-backed room/session/recording/participant endpoints.
+- Optional auth enforcement via `AUTH_REQUIRED` and `NEXTAUTH_SECRET` in API + signaling.
 
 ## 11) Local Development Notes
 

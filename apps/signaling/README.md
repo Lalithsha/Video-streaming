@@ -22,12 +22,12 @@ apps/signaling/
 ## How it works today (bootstrap)
 
 - Accepts Socket.IO connections with CORS configured for `WEB_ORIGIN`.
+- Supports optional NextAuth JWT validation when `AUTH_REQUIRED=true`.
 - Supports `room:join` and `room:leave`.
 - Emits `room:peers`, `room:peer-joined`, and `room:peer-left`.
 - Exposes `GET /health` and `GET /stats` on the same HTTP server for monitoring.
 
 ## How it will evolve
 
-- Validate auth tokens on connection.
 - Persist presence in Redis for multi-node scaling.
 - Add MediaSoup router/transport negotiation flows.
