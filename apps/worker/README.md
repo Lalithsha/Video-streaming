@@ -22,6 +22,7 @@ apps/worker/
 
 - Creates a BullMQ worker for the `recordings` queue.
 - Logs job processing and failures.
+- Exposes `GET /health` and `GET /stats` for queue monitoring.
 
 ## How it will evolve
 

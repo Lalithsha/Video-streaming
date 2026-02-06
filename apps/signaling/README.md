@@ -24,6 +24,7 @@ apps/signaling/
 - Accepts Socket.IO connections with CORS configured for `WEB_ORIGIN`.
 - Supports `room:join` and `room:leave`.
 - Emits `room:peers`, `room:peer-joined`, and `room:peer-left`.
+- Exposes `GET /health` and `GET /stats` on the same HTTP server for monitoring.
 
 ## How it will evolve
 
