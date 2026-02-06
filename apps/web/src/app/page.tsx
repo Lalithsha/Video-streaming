@@ -1,7 +1,14 @@
 "use client";
 
 import { signIn, signOut, useSession } from "next-auth/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Device,
+  type Consumer,
+  type Producer,
+  type RtpCapabilities,
+  type Transport
+} from "mediasoup-client";
 import { io, type Socket } from "socket.io-client";
 
 import { useRoomStore } from "../store/roomStore";
@@ -35,6 +42,22 @@ type ApiSession = {
   endedAt?: string;
 };
 
+type ProducerSummary = {
+  id: string;
+  userId: string;
+  kind: string;
+};
+
+type RemoteStream = {
+  id: string;
+  userId: string;
+  kind: string;
+  stream: MediaStream;
+};
+
+const fetchApi = (input: RequestInfo, init?: RequestInit) =>
+  fetch(input, { ...init, credentials: "include" });
+
 export default function HomePage() {
   const { data: sessionData } = useSession();
   const [roomTitle, setRoomTitle] = useState("");
@@ -44,6 +67,8 @@ export default function HomePage() {
   const [role, setRole] = useState<Role>("host");
   const [socket, setSocket] = useState<Socket | null>(null);
   const [handRaised, setHandRaised] = useState(false);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
 
   const {
     room,
@@ -57,6 +82,12 @@ export default function HomePage() {
     reset
   } = useRoomStore();
 
+  const deviceRef = useRef<Device | null>(null);
+  const sendTransportRef = useRef<Transport | null>(null);
+  const recvTransportRef = useRef<Transport | null>(null);
+  const producersRef = useRef<Map<string, Producer>>(new Map());
+  const consumersRef = useRef<Map<string, Consumer>>(new Map());
+
   const userId = useMemo(
     () => sessionData?.user?.email ?? sessionData?.user?.name ?? "guest",
     [sessionData]
@@ -64,8 +95,159 @@ export default function HomePage() {
 
   const resolvedDisplayName = displayName || sessionData?.user?.name || userId;
 
+  const ensureDevice = useCallback(async () => {
+    if (deviceRef.current || !rtpCapabilities) return deviceRef.current;
+    const device = new Device();
+    await device.load({ routerRtpCapabilities: rtpCapabilities as RtpCapabilities });
+    deviceRef.current = device;
+    return device;
+  }, [deviceRef, rtpCapabilities]);
+
+  const createTransport = useCallback(
+    async (direction: "send" | "recv") => {
+      if (!socket || !roomId) return null;
+      return new Promise<{
+        id: string;
+        iceParameters: unknown;
+        iceCandidates: unknown;
+        dtlsParameters: unknown;
+      } | null>((resolve) => {
+        socket.emit(
+          "mediasoup:create-transport",
+          { roomId, direction },
+          (response: { ok: boolean; transportOptions?: any }) => {
+            if (!response?.ok || !response.transportOptions) {
+              resolve(null);
+              return;
+            }
+            resolve(response.transportOptions);
+          }
+        );
+      });
+    },
+    [roomId, socket]
+  );
+
+  const setupSendTransport = useCallback(
+    async (device: Device) => {
+      if (sendTransportRef.current) return sendTransportRef.current;
+      const transportOptions = await createTransport("send");
+      if (!transportOptions) return null;
+      const transport = device.createSendTransport(transportOptions);
+      transport.on("connect", ({ dtlsParameters }, callback, errback) => {
+        socket?.emit(
+          "mediasoup:connect-transport",
+          { roomId, transportId: transport.id, dtlsParameters },
+          (response: { ok: boolean; error?: string }) => {
+            if (response?.ok) {
+              callback();
+            } else {
+              errback(new Error(response?.error ?? "Transport connect failed"));
+            }
+          }
+        );
+      });
+      transport.on("produce", ({ kind, rtpParameters }, callback, errback) => {
+        socket?.emit(
+          "mediasoup:produce",
+          { roomId, transportId: transport.id, kind, rtpParameters },
+          (response: { ok: boolean; producerId?: string; error?: string }) => {
+            if (response?.ok && response.producerId) {
+              callback({ id: response.producerId });
+            } else {
+              errback(new Error(response?.error ?? "Produce failed"));
+            }
+          }
+        );
+      });
+      sendTransportRef.current = transport;
+      return transport;
+    },
+    [createTransport, roomId, sendTransportRef, socket]
+  );
+
+  const setupRecvTransport = useCallback(
+    async (device: Device) => {
+      if (recvTransportRef.current) return recvTransportRef.current;
+      const transportOptions = await createTransport("recv");
+      if (!transportOptions) return null;
+      const transport = device.createRecvTransport(transportOptions);
+      transport.on("connect", ({ dtlsParameters }, callback, errback) => {
+        socket?.emit(
+          "mediasoup:connect-transport",
+          { roomId, transportId: transport.id, dtlsParameters },
+          (response: { ok: boolean; error?: string }) => {
+            if (response?.ok) {
+              callback();
+            } else {
+              errback(new Error(response?.error ?? "Transport connect failed"));
+            }
+          }
+        );
+      });
+      recvTransportRef.current = transport;
+      return transport;
+    },
+    [createTransport, roomId, recvTransportRef, socket]
+  );
+
+  const startLocalMedia = useCallback(async () => {
+    if (!socket || !roomId) return;
+    if (localStream) return;
+    const device = await ensureDevice();
+    if (!device) return;
+    const sendTransport = await setupSendTransport(device);
+    if (!sendTransport) return;
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: true
+    });
+    setLocalStream(stream);
+    for (const track of stream.getTracks()) {
+      const producer = await sendTransport.produce({ track });
+      producersRef.current.set(producer.id, producer);
+    }
+  }, [ensureDevice, localStream, producersRef, roomId, setupSendTransport, socket]);
+
+  const consumeProducer = useCallback(
+    async (producer: ProducerSummary) => {
+      if (!socket || !roomId) return;
+      if (consumersRef.current.has(producer.id)) return;
+      const device = await ensureDevice();
+      if (!device) return;
+      const recvTransport = await setupRecvTransport(device);
+      if (!recvTransport) return;
+      socket.emit(
+        "mediasoup:consume",
+        {
+          roomId,
+          transportId: recvTransport.id,
+          producerId: producer.id,
+          rtpCapabilities: device.rtpCapabilities
+        },
+        async (response: { ok: boolean; consumerOptions?: any }) => {
+          if (!response?.ok || !response.consumerOptions) return;
+          const { id, producerId, kind, rtpParameters } = response.consumerOptions;
+          const consumer = await recvTransport.consume({
+            id,
+            producerId,
+            kind,
+            rtpParameters
+          });
+          consumersRef.current.set(producer.id, consumer);
+          const stream = new MediaStream([consumer.track]);
+          setRemoteStreams((prev) => [
+            ...prev.filter((item) => item.id !== producer.id),
+            { id: producer.id, userId: producer.userId, kind: consumer.kind, stream }
+          ]);
+        }
+      );
+    },
+    [consumersRef, ensureDevice, roomId, setupRecvTransport, socket]
+  );
+
   const fetchRoomSessions = useCallback(async (targetRoomId: string) => {
-    const response = await fetch(`${apiUrl}/rooms/${targetRoomId}/sessions`);
+    const response = await fetchApi(`${apiUrl}/rooms/${targetRoomId}/sessions`);
     if (!response.ok) return null;
     const data = (await response.json()) as { sessions: ApiSession[] };
     if (!data.sessions.length) return null;
@@ -76,7 +258,7 @@ export default function HomePage() {
 
   const connectSocket = useCallback(
     (targetRoomId: string) => {
-      const client = io(signalingUrl, { transports: ["websocket"] });
+      const client = io(signalingUrl, { transports: ["websocket"], withCredentials: true });
       setSocket(client);
       client.emit(
         "room:join",
@@ -95,7 +277,7 @@ export default function HomePage() {
   );
 
   const createRoom = useCallback(async () => {
-    const response = await fetch(`${apiUrl}/rooms`, {
+    const response = await fetchApi(`${apiUrl}/rooms`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -110,7 +292,7 @@ export default function HomePage() {
     setRoom(data);
     setRoomId(data.id);
 
-    const sessionResponse = await fetch(`${apiUrl}/rooms/${data.id}/sessions`, {
+    const sessionResponse = await fetchApi(`${apiUrl}/rooms/${data.id}/sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" }
     });
@@ -124,7 +306,7 @@ export default function HomePage() {
 
   const joinRoom = useCallback(async () => {
     if (!roomId) return;
-    const response = await fetch(`${apiUrl}/rooms/${roomId}`);
+    const response = await fetchApi(`${apiUrl}/rooms/${roomId}`);
     if (!response.ok) {
       reset();
       return;
@@ -148,9 +330,21 @@ export default function HomePage() {
       socket.disconnect();
       setSocket(null);
     }
+    consumersRef.current.forEach((consumer) => consumer.close());
+    producersRef.current.forEach((producer) => producer.close());
+    consumersRef.current.clear();
+    producersRef.current.clear();
+    sendTransportRef.current?.close();
+    recvTransportRef.current?.close();
+    sendTransportRef.current = null;
+    recvTransportRef.current = null;
+    deviceRef.current = null;
+    localStream?.getTracks().forEach((track) => track.stop());
+    setLocalStream(null);
+    setRemoteStreams([]);
     setHandRaised(false);
     reset();
-  }, [reset, roomId, socket, userId]);
+  }, [localStream, reset, roomId, socket, userId]);
 
   const toggleHandRaise = useCallback(() => {
     if (!socket || !roomId) return;
@@ -164,13 +358,20 @@ export default function HomePage() {
 
     const handleRoster = ({
       peers: nextPeers,
-      rtpCapabilities: nextRtpCapabilities
+      rtpCapabilities: nextRtpCapabilities,
+      producers
     }: {
       peers: typeof peers;
       rtpCapabilities: unknown | null;
+      producers: ProducerSummary[];
     }) => {
       setPeers(nextPeers);
       setRtpCapabilities(nextRtpCapabilities);
+      if (producers?.length) {
+        producers.forEach((producer) => {
+          void consumeProducer(producer);
+        });
+      }
     };
     const handlePeerJoined = (peer: (typeof peers)[number]) => {
       const prev = useRoomStore.getState().peers;
@@ -197,12 +398,25 @@ export default function HomePage() {
     const handleRtpCapabilities = ({ rtpCapabilities: nextRtp }: { rtpCapabilities: unknown }) => {
       setRtpCapabilities(nextRtp ?? null);
     };
+    const handleProducerAdded = (producer: ProducerSummary) => {
+      void consumeProducer(producer);
+    };
+    const handleProducerRemoved = ({ producerId }: { producerId: string }) => {
+      const consumer = consumersRef.current.get(producerId);
+      if (consumer) {
+        consumer.close();
+        consumersRef.current.delete(producerId);
+        setRemoteStreams((prev) => prev.filter((item) => item.id !== producerId));
+      }
+    };
 
     socket.on("room:roster", handleRoster);
     socket.on("room:peer-joined", handlePeerJoined);
     socket.on("room:peer-left", handlePeerLeft);
     socket.on("room:hand-raised", handleHandRaised);
     socket.on("room:rtp-capabilities", handleRtpCapabilities);
+    socket.on("room:producer-added", handleProducerAdded);
+    socket.on("room:producer-removed", handleProducerRemoved);
 
     return () => {
       socket.off("room:roster", handleRoster);
@@ -210,9 +424,26 @@ export default function HomePage() {
       socket.off("room:peer-left", handlePeerLeft);
       socket.off("room:hand-raised", handleHandRaised);
       socket.off("room:rtp-capabilities", handleRtpCapabilities);
+      socket.off("room:producer-added", handleProducerAdded);
+      socket.off("room:producer-removed", handleProducerRemoved);
       socket.disconnect();
     };
-  }, [socket, setPeers, setRtpCapabilities, peers]);
+  }, [consumeProducer, consumersRef, setPeers, setRtpCapabilities, socket]);
+
+  useEffect(() => {
+    if (!socket || !room || !rtpCapabilities) return;
+    void startLocalMedia();
+  }, [room, rtpCapabilities, socket, startLocalMedia]);
+
+  const bindStream = useCallback(
+    (stream: MediaStream | null) => (node: HTMLVideoElement | HTMLAudioElement | null) => {
+      if (!node || !stream) return;
+      if (node.srcObject !== stream) {
+        node.srcObject = stream;
+      }
+    },
+    []
+  );
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-100 via-indigo-50 to-white px-6 pb-16 pt-12 text-ink">
@@ -470,6 +701,74 @@ export default function HomePage() {
               ) : (
                 <p className="text-sm text-ink-muted">
                   No peers yet. Invite someone to join.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="card p-7">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="label">Local preview</span>
+                <h2 className="mt-3 text-xl font-semibold text-slate-900">Your camera</h2>
+              </div>
+              <span className="pill">{localStream ? "Live" : "Idle"}</span>
+            </div>
+            <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-black">
+              {localStream ? (
+                <video
+                  ref={bindStream(localStream) as (node: HTMLVideoElement | null) => void}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="h-64 w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-64 items-center justify-center text-sm text-white/70">
+                  Start a room to preview your stream.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="card p-7">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="label">Remote feeds</span>
+                <h2 className="mt-3 text-xl font-semibold text-slate-900">Classroom stage</h2>
+              </div>
+              <span className="pill">{remoteStreams.length} streams</span>
+            </div>
+            <div className="mt-6 grid gap-4">
+              {remoteStreams.length ? (
+                remoteStreams.map((remote) => (
+                  <div
+                    key={remote.id}
+                    className="overflow-hidden rounded-2xl border border-slate-200 bg-black"
+                  >
+                    {remote.kind === "audio" ? (
+                      <div className="flex h-32 items-center justify-center text-sm text-white/70">
+                        {remote.userId} (audio)
+                        <audio
+                          ref={bindStream(remote.stream) as (node: HTMLAudioElement | null) => void}
+                          autoPlay
+                        />
+                      </div>
+                    ) : (
+                      <video
+                        ref={bindStream(remote.stream) as (node: HTMLVideoElement | null) => void}
+                        autoPlay
+                        playsInline
+                        className="h-32 w-full object-cover"
+                      />
+                    )}
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-ink-muted">
+                  Remote streams will appear when peers publish.
                 </p>
               )}
             </div>

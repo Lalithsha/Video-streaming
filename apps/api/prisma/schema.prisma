@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SessionStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+}
+
+enum RecordingStatus {
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum ParticipantRole {
+  HOST
+  COHOST
+  SPEAKER
+  VIEWER
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String?
+  email     String?  @unique
+  image     String?
+  createdAt DateTime @default(now())
+
+  rooms         Room[]        @relation("RoomHost")
+  participants  Participant[]
+}
+
+model Room {
+  id          String      @id @default(cuid())
+  title       String
+  description String?
+  createdAt   DateTime    @default(now())
+  hostId      String?
+  host        User?       @relation("RoomHost", fields: [hostId], references: [id])
+  sessions    Session[]
+  participants Participant[]
+}
+
+model Session {
+  id        String        @id @default(cuid())
+  roomId    String
+  status    SessionStatus @default(SCHEDULED)
+  createdAt DateTime      @default(now())
+  startedAt DateTime?
+  endedAt   DateTime?
+
+  room       Room        @relation(fields: [roomId], references: [id])
+  recordings Recording[]
+}
+
+model Recording {
+  id              String          @id @default(cuid())
+  sessionId       String
+  status          RecordingStatus @default(PROCESSING)
+  createdAt       DateTime        @default(now())
+  url             String?
+  durationSeconds Int?
+
+  session Session @relation(fields: [sessionId], references: [id])
+}
+
+model Participant {
+  id        String          @id @default(cuid())
+  roomId    String
+  userId    String?
+  name      String
+  role      ParticipantRole @default(VIEWER)
+  joinedAt  DateTime        @default(now())
+
+  room Room  @relation(fields: [roomId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+}

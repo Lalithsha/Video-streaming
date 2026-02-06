@@ -13,10 +13,10 @@ This folder contains the runtime entry points for the API service.
 
 **How it works**
 - Configures JSON parsing.
-- Defines health, room, and session endpoints.
+- Defines health, room, session, recording, and participant endpoints.
+- Uses Prisma for persistence.
 - Starts the HTTP server on `API_PORT`.
 
 **Next steps**
 - Extract route modules (rooms, sessions, recordings).
-- Add auth middleware and request validation.
-- Add persistence via Prisma.
+- Add request validation.

@@ -1,7 +1,14 @@
 import { randomUUID } from "crypto";
 import http from "http";
 import os from "os";
-import { createWorker, type Router, type Worker } from "mediasoup";
+import {
+  createWorker,
+  type Consumer,
+  type Producer,
+  type Router,
+  type WebRtcTransport,
+  type Worker
+} from "mediasoup";
 
 const port = Number(process.env.MEDIA_WORKER_PORT ?? "4002");
 const workerCount = Number(process.env.MEDIASOUP_WORKERS ?? os.cpus().length);
@@ -30,6 +37,8 @@ type RoomState = {
   router: Router;
   worker: Worker;
   createdAt: string;
+  transports: Map<string, WebRtcTransport>;
+  producers: Map<string, Producer>;
 };
 
 const workers: Worker[] = [];
@@ -67,7 +76,9 @@ const getOrCreateRoom = async (roomId: string) => {
     id: roomId,
     router,
     worker,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    transports: new Map(),
+    producers: new Map()
   };
   rooms.set(roomId, room);
   return room;
@@ -89,6 +100,21 @@ const parseBody = async (req: http.IncomingMessage) => {
   } catch (error) {
     return null;
   }
+};
+
+const createWebRtcTransport = async (router: Router) => {
+  const listenIps = [
+    {
+      ip: "0.0.0.0",
+      announcedIp: process.env.ANNOUNCED_IP ?? undefined
+    }
+  ];
+  return router.createWebRtcTransport({
+    listenIps,
+    enableUdp: true,
+    enableTcp: true,
+    preferUdp: true
+  });
 };
 
 const server = http.createServer(async (req, res) => {
@@ -150,8 +176,118 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     await room.router.close();
+    for (const transport of room.transports.values()) {
+      transport.close();
+    }
     rooms.delete(roomId);
     jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  const transportMatch = url.pathname.match(/^\/rooms\/([^/]+)\/transports$/);
+  if (transportMatch && req.method === "POST") {
+    const roomId = transportMatch[1];
+    const room = await getOrCreateRoom(roomId);
+    const transport = await createWebRtcTransport(room.router);
+    room.transports.set(transport.id, transport);
+    transport.on("close", () => {
+      room.transports.delete(transport.id);
+    });
+    jsonResponse(res, 201, {
+      id: transport.id,
+      iceParameters: transport.iceParameters,
+      iceCandidates: transport.iceCandidates,
+      dtlsParameters: transport.dtlsParameters
+    });
+    return;
+  }
+
+  const transportConnectMatch = url.pathname.match(
+    /^\/rooms\/([^/]+)\/transports\/([^/]+)\/connect$/
+  );
+  if (transportConnectMatch && req.method === "POST") {
+    const roomId = transportConnectMatch[1];
+    const transportId = transportConnectMatch[2];
+    const room = rooms.get(roomId);
+    if (!room) {
+      jsonResponse(res, 404, { error: "Room not found" });
+      return;
+    }
+    const transport = room.transports.get(transportId);
+    if (!transport) {
+      jsonResponse(res, 404, { error: "Transport not found" });
+      return;
+    }
+    const body = await parseBody(req);
+    if (!body?.dtlsParameters) {
+      jsonResponse(res, 400, { error: "Missing dtlsParameters" });
+      return;
+    }
+    await transport.connect({ dtlsParameters: body.dtlsParameters });
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  const producerMatch = url.pathname.match(/^\/rooms\/([^/]+)\/producers$/);
+  if (producerMatch && req.method === "POST") {
+    const roomId = producerMatch[1];
+    const room = rooms.get(roomId);
+    if (!room) {
+      jsonResponse(res, 404, { error: "Room not found" });
+      return;
+    }
+    const body = await parseBody(req);
+    const transport = room.transports.get(body?.transportId);
+    if (!transport) {
+      jsonResponse(res, 404, { error: "Transport not found" });
+      return;
+    }
+    const producer = await transport.produce({
+      kind: body.kind,
+      rtpParameters: body.rtpParameters
+    });
+    room.producers.set(producer.id, producer);
+    producer.on("close", () => {
+      room.producers.delete(producer.id);
+    });
+    jsonResponse(res, 201, { id: producer.id, kind: producer.kind });
+    return;
+  }
+
+  const consumerMatch = url.pathname.match(/^\/rooms\/([^/]+)\/consumers$/);
+  if (consumerMatch && req.method === "POST") {
+    const roomId = consumerMatch[1];
+    const room = rooms.get(roomId);
+    if (!room) {
+      jsonResponse(res, 404, { error: "Room not found" });
+      return;
+    }
+    const body = await parseBody(req);
+    const transport = room.transports.get(body?.transportId);
+    if (!transport) {
+      jsonResponse(res, 404, { error: "Transport not found" });
+      return;
+    }
+    const producerId = body?.producerId;
+    const rtpCapabilities = body?.rtpCapabilities;
+    if (!producerId || !rtpCapabilities) {
+      jsonResponse(res, 400, { error: "Missing producerId or rtpCapabilities" });
+      return;
+    }
+    if (!room.router.canConsume({ producerId, rtpCapabilities })) {
+      jsonResponse(res, 400, { error: "Cannot consume" });
+      return;
+    }
+    const consumer: Consumer = await transport.consume({
+      producerId,
+      rtpCapabilities
+    });
+    jsonResponse(res, 201, {
+      id: consumer.id,
+      producerId,
+      kind: consumer.kind,
+      rtpParameters: consumer.rtpParameters
+    });
     return;
   }
 
@@ -161,6 +297,12 @@ const server = http.createServer(async (req, res) => {
 const shutdown = async () => {
   console.log("Shutting down media worker service...");
   for (const room of rooms.values()) {
+    for (const producer of room.producers.values()) {
+      producer.close();
+    }
+    for (const transport of room.transports.values()) {
+      transport.close();
+    }
     await room.router.close();
   }
   for (const worker of workers) {

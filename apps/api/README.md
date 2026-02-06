@@ -22,17 +22,23 @@ apps/api/
 
 ## How it works today (bootstrap)
 
-- `server.ts` starts an Express server.
+- `server.ts` starts an Express server backed by Prisma.
 - Endpoints:
   - `GET /health` → readiness check.
-  - `POST /rooms` → create an in-memory room.
-  - `GET /rooms/:roomId` → fetch an in-memory room.
+  - `POST /rooms` → create a room in the database.
+  - `GET /rooms/:roomId` → fetch a room from the database.
   - `POST /rooms/:roomId/sessions` → create a session for a room.
   - `PATCH /sessions/:sessionId` → update session status.
+  - Recording + participant endpoints are backed by persisted tables.
+
+## Auth and persistence
+
+- Requires `DATABASE_URL` for Prisma.
+- Set `AUTH_REQUIRED=true` and `NEXTAUTH_SECRET` to enforce NextAuth JWT validation.
+- When auth is enabled, room/session/recording mutations require a valid token.
+- Ensure `WEB_ORIGIN` matches the Next.js origin so credentialed cookies are accepted.
 
 ## How it will evolve
 
-- Replace in-memory `rooms` map with Prisma models.
-- Add auth middleware (NextAuth session validation).
 - Add validation (Zod) for request payloads.
 - Introduce pagination, role checks, and audit logging.

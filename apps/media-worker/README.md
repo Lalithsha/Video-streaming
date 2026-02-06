@@ -21,12 +21,13 @@ apps/media-worker/
 
 ## How it works today (bootstrap)
 
-- Creates a single MediaSoup worker.
+- Creates a MediaSoup worker pool and routers per room.
+- Exposes HTTP endpoints to create WebRTC transports, producers, and consumers.
 - Logs lifecycle events and exits on worker death.
 - Exposes `GET /health` and `GET /stats` to report worker/room counts.
 
 ## How it will evolve
 
 - Spin up one worker per CPU core.
-- Create routers per room.
+- Add explicit teardown + capacity management per room.
 - Expose RPC or event APIs for the signaling server.
