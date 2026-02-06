@@ -1,7 +1,7 @@
-import mediasoup from "mediasoup";
+import { createWorker } from "mediasoup";
 
 async function start() {
-  const worker = await mediasoup.createWorker();
+  const worker = await createWorker();
   worker.on("died", () => {
     console.error("MediaSoup worker died, exiting.");
     process.exit(1);
