@@ -60,6 +60,19 @@ export default function HomePage() {
     client.emit("room:join", { roomId, userId });
   }, [roomId, userId]);
 
+  const leaveRoom = useCallback(() => {
+    if (!socket || !roomId) {
+      setRoom(null);
+      setPeers([]);
+      return;
+    }
+    socket.emit("room:leave", { roomId, userId });
+    socket.disconnect();
+    setSocket(null);
+    setRoom(null);
+    setPeers([]);
+  }, [roomId, socket, userId]);
+
   useEffect(() => {
     if (!socket) return;
 
@@ -136,6 +149,9 @@ export default function HomePage() {
             <p>Room ID: {room.id}</p>
             <p>Created: {new Date(room.createdAt).toLocaleString()}</p>
             <p>Peers: {peers.length}</p>
+            <button type="button" onClick={leaveRoom}>
+              Leave room
+            </button>
             <ul>
               {peers.map((peer) => (
                 <li key={`${peer.userId}-${peer.socketId}`}>{peer.userId}</li>
