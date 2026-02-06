@@ -36,6 +36,7 @@ apps/api/
 - Requires `DATABASE_URL` for Prisma.
 - Set `AUTH_REQUIRED=true` and `NEXTAUTH_SECRET` to enforce NextAuth JWT validation.
 - When auth is enabled, room/session/recording mutations require a valid token.
+- Ensure `WEB_ORIGIN` matches the Next.js origin so credentialed cookies are accepted.
 
 ## How it will evolve
 

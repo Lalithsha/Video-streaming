@@ -43,6 +43,7 @@ const httpServer = createServer((req, res) => {
   res.setHeader("Access-Control-Allow-Origin", webOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
   if (req.method === "OPTIONS") {
     res.writeHead(204);
     res.end();
@@ -72,7 +73,8 @@ const httpServer = createServer((req, res) => {
 const io = new Server(httpServer, {
   cors: {
     origin: webOrigin,
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
@@ -85,6 +87,7 @@ type RoomParticipant = {
   role: Role;
   raisedHand: boolean;
   joinedAt: string;
+  producerIds: string[];
 };
 
 type RoomMessage = {
@@ -100,6 +103,7 @@ type RoomState = {
   participants: Map<string, RoomParticipant>;
   messages: RoomMessage[];
   rtpCapabilities?: unknown;
+  producers: Map<string, { id: string; userId: string; kind: string }>;
 };
 
 const rooms = new Map<string, RoomState>();
@@ -113,7 +117,11 @@ type SocketAuth = {
 const getRoomState = (roomId: string) => {
   const existing = rooms.get(roomId);
   if (existing) return existing;
-  const created: RoomState = { participants: new Map(), messages: [] };
+  const created: RoomState = {
+    participants: new Map(),
+    messages: [],
+    producers: new Map()
+  };
   rooms.set(roomId, created);
   return created;
 };
@@ -134,12 +142,14 @@ const resolveAuth = async (socket: import("socket.io").Socket) => {
       ? socket.handshake.auth.token
       : undefined;
   const authorizationHeader = socket.handshake.headers.authorization;
+  const cookieHeader = socket.handshake.headers.cookie;
   const bearerToken =
     typeof authorizationHeader === "string" ? authorizationHeader : undefined;
   const token = await getToken({
     req: {
       headers: {
-        authorization: authToken ? `Bearer ${authToken}` : bearerToken
+        authorization: authToken ? `Bearer ${authToken}` : bearerToken,
+        cookie: typeof cookieHeader === "string" ? cookieHeader : undefined
       }
     } as never,
     secret: authSecret
@@ -166,6 +176,24 @@ const fetchRtpCapabilities = async (roomId: string) => {
   } catch (error) {
     console.warn("Failed to fetch RTP capabilities", error);
     return null;
+  }
+};
+
+const callMediaWorker = async <T>(
+  path: string,
+  options?: RequestInit
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> => {
+  if (!mediaWorkerUrl) return { ok: false, error: "Media worker not configured" };
+  try {
+    const response = await fetch(`${mediaWorkerUrl}${path}`, options);
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, error: text || "Media worker error" };
+    }
+    const data = (await response.json()) as T;
+    return { ok: true, data };
+  } catch (error) {
+    return { ok: false, error: "Media worker request failed" };
   }
 };
 
@@ -209,7 +237,8 @@ io.on("connection", (socket) => {
       displayName,
       role,
       raisedHand: false,
-      joinedAt: new Date().toISOString()
+      joinedAt: new Date().toISOString(),
+      producerIds: []
     };
     room.participants.set(socket.id, participant);
 
@@ -221,7 +250,8 @@ io.on("connection", (socket) => {
     socket.emit("room:roster", {
       peers: roster,
       messages: room.messages,
-      rtpCapabilities: room.rtpCapabilities ?? null
+      rtpCapabilities: room.rtpCapabilities ?? null,
+      producers: Array.from(room.producers.values())
     });
 
     if (!room.rtpCapabilities) {
@@ -235,6 +265,110 @@ io.on("connection", (socket) => {
     callback?.({ ok: true });
   });
 
+  socket.on("mediasoup:create-transport", async (payload, callback) => {
+    const roomId = sanitizeText(payload?.roomId, "");
+    if (!roomId) {
+      callback?.({ ok: false, error: "Missing roomId" });
+      return;
+    }
+    const result = await callMediaWorker<{
+      id: string;
+      iceParameters: unknown;
+      iceCandidates: unknown;
+      dtlsParameters: unknown;
+    }>(`/rooms/${roomId}/transports`, { method: "POST" });
+    if (!result.ok) {
+      callback?.({ ok: false, error: result.error });
+      return;
+    }
+    callback?.({ ok: true, transportOptions: result.data });
+  });
+
+  socket.on("mediasoup:connect-transport", async (payload, callback) => {
+    const roomId = sanitizeText(payload?.roomId, "");
+    const transportId = sanitizeText(payload?.transportId, "");
+    if (!roomId || !transportId) {
+      callback?.({ ok: false, error: "Missing data" });
+      return;
+    }
+    const result = await callMediaWorker<{ ok: true }>(
+      `/rooms/${roomId}/transports/${transportId}/connect`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dtlsParameters: payload?.dtlsParameters })
+      }
+    );
+    if (!result.ok) {
+      callback?.({ ok: false, error: result.error });
+      return;
+    }
+    callback?.({ ok: true });
+  });
+
+  socket.on("mediasoup:produce", async (payload, callback) => {
+    const roomId = sanitizeText(payload?.roomId, "");
+    const transportId = sanitizeText(payload?.transportId, "");
+    if (!roomId || !transportId) {
+      callback?.({ ok: false, error: "Missing data" });
+      return;
+    }
+    const result = await callMediaWorker<{ id: string; kind: string }>(
+      `/rooms/${roomId}/producers`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transportId,
+          kind: payload?.kind,
+          rtpParameters: payload?.rtpParameters
+        })
+      }
+    );
+    if (!result.ok) {
+      callback?.({ ok: false, error: result.error });
+      return;
+    }
+    const room = getRoomState(roomId);
+    const participant = room.participants.get(socket.id);
+    if (participant) {
+      participant.producerIds.push(result.data.id);
+    }
+    const producerSummary = { id: result.data.id, userId: participant?.userId ?? socket.id, kind: result.data.kind };
+    room.producers.set(result.data.id, producerSummary);
+    socket.to(roomId).emit("room:producer-added", producerSummary);
+    callback?.({ ok: true, producerId: result.data.id });
+  });
+
+  socket.on("mediasoup:consume", async (payload, callback) => {
+    const roomId = sanitizeText(payload?.roomId, "");
+    const transportId = sanitizeText(payload?.transportId, "");
+    const producerId = sanitizeText(payload?.producerId, "");
+    if (!roomId || !transportId || !producerId) {
+      callback?.({ ok: false, error: "Missing data" });
+      return;
+    }
+    const result = await callMediaWorker<{
+      id: string;
+      producerId: string;
+      kind: string;
+      rtpParameters: unknown;
+    }>(`/rooms/${roomId}/consumers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        transportId,
+        producerId,
+        rtpCapabilities: payload?.rtpCapabilities
+      })
+    });
+    if (!result.ok) {
+      callback?.({ ok: false, error: result.error });
+      return;
+    }
+    callback?.({ ok: true, consumerOptions: result.data });
+  });
+
   socket.on("room:leave", (payload) => {
     const roomId = sanitizeText(payload?.roomId, "");
     if (!roomId) return;
@@ -243,6 +377,12 @@ io.on("connection", (socket) => {
     if (!room) return;
     const participant = room.participants.get(socket.id);
     room.participants.delete(socket.id);
+    if (participant?.producerIds.length) {
+      for (const producerId of participant.producerIds) {
+        room.producers.delete(producerId);
+        socket.to(roomId).emit("room:producer-removed", { producerId });
+      }
+    }
     if (participant) {
       socket.to(roomId).emit("room:peer-left", { userId: participant.userId });
     }
@@ -297,6 +437,12 @@ io.on("connection", (socket) => {
       if (!room) continue;
       const participant = room.participants.get(socket.id);
       room.participants.delete(socket.id);
+      if (participant?.producerIds.length) {
+        for (const producerId of participant.producerIds) {
+          room.producers.delete(producerId);
+          socket.to(roomId).emit("room:producer-removed", { producerId });
+        }
+      }
       if (participant) {
         socket.to(roomId).emit("room:peer-left", { userId: participant.userId });
       }

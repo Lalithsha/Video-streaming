@@ -24,6 +24,8 @@ apps/web/
 - `page.tsx` provides room creation/join and peer list UI.
 - `providers.tsx` wires the NextAuth session provider.
 - `signin/page.tsx` provides a simple sign-in UI.
+- API and signaling calls include credentials so NextAuth JWT cookies can be validated by backend services.
+- MediaSoup client flows create send/receive transports and display local/remote media streams.
 
 ## How it will evolve
 

@@ -263,6 +263,10 @@ Priority 0 completion notes:
 - Prisma schema + database-backed room/session/recording/participant endpoints.
 - Optional auth enforcement via `AUTH_REQUIRED` and `NEXTAUTH_SECRET` in API + signaling.
 
+Priority 1 completion notes:
+- MediaSoup transport/produce/consume flows wired through signaling to media-worker.
+- Web client publishes local media and renders remote streams in the classroom UI.
+
 ## 11) Local Development Notes
 
 - Copy `.env.example` to `.env` and fill in provider credentials.

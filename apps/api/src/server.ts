@@ -5,7 +5,7 @@ import { getToken } from "next-auth/jwt";
 
 const app = express();
 const port = Number(process.env.API_PORT ?? "4000");
-const webOrigin = process.env.WEB_ORIGIN ?? "*";
+const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
 const authRequired = (process.env.AUTH_REQUIRED ?? "false") === "true";
 const authSecret = process.env.NEXTAUTH_SECRET;
 const prisma = new PrismaClient();
@@ -15,6 +15,7 @@ app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", webOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return;
