@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-slate-100 text-ink;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply rounded-3xl border border-white/40 bg-white/80 shadow-soft backdrop-blur;
+  }
+
+  .card {
+    @apply rounded-2xl border border-slate-200 bg-surface shadow-card;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-2 rounded-full border border-slate-200 bg-surface-muted px-3 py-1 text-xs font-semibold text-ink;
+  }
+
+  .label {
+    @apply text-xs font-semibold uppercase tracking-[0.2em] text-slate-500;
+  }
+}
