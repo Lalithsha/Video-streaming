@@ -4,16 +4,7 @@ import { signIn, signOut, useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 
-type Room = {
-  id: string;
-  title: string;
-  createdAt: string;
-};
-
-type Peer = {
-  userId: string;
-  socketId: string;
-};
+import { useRoomStore } from "../store/roomStore";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 const signalingUrl =
@@ -23,8 +14,7 @@ export default function HomePage() {
   const { data: session } = useSession();
   const [roomTitle, setRoomTitle] = useState("");
   const [roomId, setRoomId] = useState("");
-  const [room, setRoom] = useState<Room | null>(null);
-  const [peers, setPeers] = useState<Peer[]>([]);
+  const { room, peers, setRoom, setPeers, reset } = useRoomStore();
   const [socket, setSocket] = useState<Socket | null>(null);
 
   const userId = useMemo(
@@ -41,7 +31,11 @@ export default function HomePage() {
     if (!response.ok) {
       return;
     }
-    const data = (await response.json()) as Room;
+    const data = (await response.json()) as {
+      id: string;
+      title: string;
+      createdAt: string;
+    };
     setRoom(data);
     setRoomId(data.id);
   }, [roomTitle]);
@@ -50,40 +44,48 @@ export default function HomePage() {
     if (!roomId) return;
     const response = await fetch(`${apiUrl}/rooms/${roomId}`);
     if (!response.ok) {
-      setRoom(null);
+      reset();
       return;
     }
-    const data = (await response.json()) as Room;
+    const data = (await response.json()) as {
+      id: string;
+      title: string;
+      createdAt: string;
+    };
     setRoom(data);
     const client = io(signalingUrl);
     setSocket(client);
     client.emit("room:join", { roomId, userId });
-  }, [roomId, userId]);
+  }, [reset, roomId, setRoom, userId]);
 
   const leaveRoom = useCallback(() => {
     if (!socket || !roomId) {
-      setRoom(null);
-      setPeers([]);
+      reset();
       return;
     }
     socket.emit("room:leave", { roomId, userId });
     socket.disconnect();
     setSocket(null);
-    setRoom(null);
-    setPeers([]);
-  }, [roomId, socket, userId]);
+    reset();
+  }, [reset, roomId, socket, userId]);
 
   useEffect(() => {
     if (!socket) return;
 
-    const handlePeers = ({ peers: nextPeers }: { peers: Peer[] }) => {
+    const handlePeers = ({
+      peers: nextPeers,
+    }: {
+      peers: { userId: string; socketId: string }[];
+    }) => {
       setPeers(nextPeers);
     };
     const handlePeerJoined = ({ userId: peerId }: { userId: string }) => {
-      setPeers((prev) => [...prev, { userId: peerId, socketId: "unknown" }]);
+      const prev = useRoomStore.getState().peers;
+      setPeers([...prev, { userId: peerId, socketId: "unknown" }]);
     };
     const handlePeerLeft = ({ userId: peerId }: { userId: string }) => {
-      setPeers((prev) => prev.filter((peer) => peer.userId !== peerId));
+      const prev = useRoomStore.getState().peers;
+      setPeers(prev.filter((peer) => peer.userId !== peerId));
     };
 
     socket.on("room:peers", handlePeers);
@@ -96,7 +98,7 @@ export default function HomePage() {
       socket.off("room:peer-left", handlePeerLeft);
       socket.disconnect();
     };
-  }, [socket]);
+  }, [socket, setPeers]);
 
   return (
     <main style={{ padding: "2rem", fontFamily: "sans-serif" }}>

@@ -27,6 +27,8 @@ apps/api/
   - `GET /health` → readiness check.
   - `POST /rooms` → create an in-memory room.
   - `GET /rooms/:roomId` → fetch an in-memory room.
+  - `POST /rooms/:roomId/sessions` → create a session for a room.
+  - `PATCH /sessions/:sessionId` → update session status.
 
 ## How it will evolve
 

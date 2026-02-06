@@ -13,7 +13,7 @@ This folder contains the runtime entry points for the API service.
 
 **How it works**
 - Configures JSON parsing.
-- Defines health and room endpoints.
+- Defines health, room, and session endpoints.
 - Starts the HTTP server on `API_PORT`.
 
 **Next steps**

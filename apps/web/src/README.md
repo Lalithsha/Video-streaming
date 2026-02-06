@@ -12,6 +12,7 @@
 - `layout.tsx` defines the root layout and wraps the session provider.
 - `page.tsx` renders the bootstrap room UI.
 - `api/auth/[...nextauth]/route.ts` handles auth callbacks.
+- `store/roomStore.ts` holds shared room and peer state.
 
 **Next steps**
 - Add feature routes (rooms, schedule, recordings).

@@ -12,7 +12,15 @@ type Room = {
   createdAt: string;
 };
 
+type Session = {
+  id: string;
+  roomId: string;
+  status: "scheduled" | "live" | "ended";
+  createdAt: string;
+};
+
 const rooms = new Map<string, Room>();
+const sessions = new Map<string, Session>();
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
@@ -36,6 +44,38 @@ app.get("/rooms/:roomId", (req, res) => {
     return;
   }
   res.json(room);
+});
+
+app.post("/rooms/:roomId/sessions", (req, res) => {
+  const room = rooms.get(req.params.roomId);
+  if (!room) {
+    res.status(404).json({ error: "Room not found" });
+    return;
+  }
+  const session: Session = {
+    id: randomUUID(),
+    roomId: room.id,
+    status: "scheduled",
+    createdAt: new Date().toISOString()
+  };
+  sessions.set(session.id, session);
+  res.status(201).json(session);
+});
+
+app.patch("/sessions/:sessionId", (req, res) => {
+  const session = sessions.get(req.params.sessionId);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  const nextStatus = req.body?.status;
+  if (nextStatus !== "scheduled" && nextStatus !== "live" && nextStatus !== "ended") {
+    res.status(400).json({ error: "Invalid status" });
+    return;
+  }
+  const updated = { ...session, status: nextStatus };
+  sessions.set(session.id, updated);
+  res.json(updated);
 });
 
 app.listen(port, () => {
