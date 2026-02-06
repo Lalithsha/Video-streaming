@@ -23,6 +23,7 @@ apps/media-worker/
 
 - Creates a single MediaSoup worker.
 - Logs lifecycle events and exits on worker death.
+- Exposes `GET /health` and `GET /stats` to report worker/room counts.
 
 ## How it will evolve
 

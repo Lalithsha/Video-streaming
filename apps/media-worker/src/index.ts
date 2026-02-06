@@ -6,6 +6,8 @@ import { createWorker, type Router, type Worker } from "mediasoup";
 const port = Number(process.env.MEDIA_WORKER_PORT ?? "4002");
 const workerCount = Number(process.env.MEDIASOUP_WORKERS ?? os.cpus().length);
 
+const startedAt = new Date();
+
 const mediaCodecs = [
   {
     kind: "audio" as const,
@@ -92,7 +94,23 @@ const parseBody = async (req: http.IncomingMessage) => {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
   if (req.method === "GET" && url.pathname === "/health") {
-    jsonResponse(res, 200, { status: "ok", workers: workers.length, rooms: rooms.size });
+    jsonResponse(res, 200, {
+      status: "ok",
+      workers: workers.length,
+      rooms: rooms.size,
+      startedAt: startedAt.toISOString()
+    });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/stats") {
+    jsonResponse(res, 200, {
+      workers: workers.length,
+      rooms: rooms.size,
+      roomIds: Array.from(rooms.keys()),
+      startedAt: startedAt.toISOString(),
+      uptimeSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000)
+    });
     return;
   }
 

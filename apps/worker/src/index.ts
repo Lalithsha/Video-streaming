@@ -1,10 +1,16 @@
-import { QueueEvents, Worker } from "bullmq";
+import http from "http";
+import { Queue, QueueEvents, Worker } from "bullmq";
 import IORedis from "ioredis";
 
 const connection = new IORedis(process.env.REDIS_URL ?? "redis://localhost:6379");
+const port = Number(process.env.WORKER_PORT ?? "4003");
+const startedAt = new Date();
 
 const recordQueueName = "recordings";
 const uploadQueueName = "uploads";
+
+const recordQueue = new Queue(recordQueueName, { connection });
+const uploadQueue = new Queue(uploadQueueName, { connection });
 
 const recordWorker = new Worker(
   recordQueueName,
@@ -38,6 +44,40 @@ const uploadWorker = new Worker(
 const recordEvents = new QueueEvents(recordQueueName, { connection });
 const uploadEvents = new QueueEvents(uploadQueueName, { connection });
 
+const jsonResponse = (res: http.ServerResponse, status: number, body: unknown) => {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(body));
+};
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  if (req.method === "GET" && url.pathname === "/health") {
+    jsonResponse(res, 200, {
+      status: "ok",
+      redisStatus: connection.status,
+      startedAt: startedAt.toISOString(),
+      uptimeSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000)
+    });
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/stats") {
+    const [recordCounts, uploadCounts] = await Promise.all([
+      recordQueue.getJobCounts(),
+      uploadQueue.getJobCounts()
+    ]);
+    jsonResponse(res, 200, {
+      queues: {
+        recordings: recordCounts,
+        uploads: uploadCounts
+      },
+      redisStatus: connection.status,
+      startedAt: startedAt.toISOString()
+    });
+    return;
+  }
+  jsonResponse(res, 404, { error: "Not found" });
+});
+
 recordWorker.on("failed", (job, error) => {
   console.error("Recording job failed", job?.id, error);
 });
@@ -54,11 +94,22 @@ uploadEvents.on("completed", ({ jobId, returnvalue }) => {
   console.log("Upload job completed", jobId, returnvalue);
 });
 
-process.on("SIGINT", async () => {
+const shutdown = async () => {
   await recordWorker.close();
   await uploadWorker.close();
   await recordEvents.close();
   await uploadEvents.close();
+  await recordQueue.close();
+  await uploadQueue.close();
   await connection.quit();
-  process.exit(0);
+  server.close(() => {
+    process.exit(0);
+  });
+};
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+server.listen(port, () => {
+  console.log(`Worker service running on :${port}`);
 });

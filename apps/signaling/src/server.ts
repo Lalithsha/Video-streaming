@@ -6,7 +6,66 @@ const port = Number(process.env.SIGNALING_PORT ?? "4001");
 const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
 const mediaWorkerUrl = process.env.MEDIA_WORKER_URL ?? "";
 
-const httpServer = createServer();
+const startedAt = new Date();
+
+const jsonResponse = (res: import("http").ServerResponse, status: number, body: unknown) => {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(body));
+};
+
+const collectStats = () => {
+  const roomsList = Array.from(rooms.entries()).map(([roomId, room]) => ({
+    roomId,
+    participants: room.participants.size,
+    messages: room.messages.length,
+    hasRtpCapabilities: Boolean(room.rtpCapabilities)
+  }));
+  const totals = roomsList.reduce(
+    (acc, room) => {
+      acc.participants += room.participants;
+      acc.messages += room.messages;
+      return acc;
+    },
+    { participants: 0, messages: 0 }
+  );
+  return {
+    rooms: rooms.size,
+    participants: totals.participants,
+    messages: totals.messages,
+    roomsList
+  };
+};
+
+const httpServer = createServer((req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", webOrigin);
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  if (req.method === "GET" && url.pathname === "/health") {
+    jsonResponse(res, 200, {
+      status: "ok",
+      startedAt: startedAt.toISOString(),
+      uptimeSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
+      mediaWorkerConfigured: Boolean(mediaWorkerUrl)
+    });
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/stats") {
+    jsonResponse(res, 200, {
+      ...collectStats(),
+      startedAt: startedAt.toISOString()
+    });
+    return;
+  }
+
+  jsonResponse(res, 404, { error: "Not found" });
+});
 const io = new Server(httpServer, {
   cors: {
     origin: webOrigin,
