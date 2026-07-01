@@ -1,17 +1,29 @@
 import express from "express";
+import  {Request, Response, NextFunction} from "express";
 import { randomUUID } from "crypto";
-import { PrismaClient, RecordingStatus, SessionStatus, ParticipantRole } from "@prisma/client";
+import { PrismaClient, RecordingStatus, SessionStatus, ParticipantRole } from "./generated/prisma";
 import { getToken } from "next-auth/jwt";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
+
 
 const app = express();
 const port = Number(process.env.API_PORT ?? "4000");
 const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
 const authRequired = (process.env.AUTH_REQUIRED ?? "false") === "true";
 const authSecret = process.env.NEXTAUTH_SECRET;
-const prisma = new PrismaClient();
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+const adapter = new PrismaPg(pool);
+
+const prisma = new PrismaClient({
+  adapter,
+});
 
 app.use(express.json());
-app.use((req, res, next) => {
+app.use((req:Request, res:Response, next:NextFunction) => {
   res.setHeader("Access-Control-Allow-Origin", webOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
@@ -94,11 +106,11 @@ const attachAuth = async (
   next();
 };
 
-app.get("/health", (_req, res) => {
+app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
 });
 
-app.get("/stats", async (_req, res) => {
+app.get("/stats", async (_req: Request, res: Response) => {
   const [roomsCount, sessionsCount, recordingsCount, participantsCount, liveSessions] =
     await Promise.all([
       prisma.room.count(),
@@ -116,7 +128,7 @@ app.get("/stats", async (_req, res) => {
   });
 });
 
-app.get("/rooms", async (_req, res) => {
+app.get("/rooms", async (_req: Request, res: Response) => {
   const rooms = await prisma.room.findMany({ orderBy: { createdAt: "desc" } });
   res.json({
     rooms: rooms.map((room) => ({
@@ -126,7 +138,7 @@ app.get("/rooms", async (_req, res) => {
   });
 });
 
-app.post("/rooms", attachAuth, async (req, res) => {
+app.post("/rooms", attachAuth, async (req:Request, res: Response) => {
   const title = parseString(req.body?.title, "Untitled");
   const description =
     typeof req.body?.description === "string" ? req.body.description.trim() : undefined;
@@ -152,7 +164,7 @@ app.post("/rooms", attachAuth, async (req, res) => {
   });
 });
 
-app.get("/rooms/:roomId", async (req, res) => {
+app.get("/rooms/:roomId", async (req:Request, res: Response) => {
   const room = await prisma.room.findUnique({ where: { id: req.params.roomId } });
   if (!room) {
     res.status(404).json({ error: "Room not found" });
@@ -164,7 +176,7 @@ app.get("/rooms/:roomId", async (req, res) => {
   });
 });
 
-app.get("/rooms/:roomId/sessions", async (req, res) => {
+app.get("/rooms/:roomId/sessions", async (req:Request, res: Response) => {
   const room = await prisma.room.findUnique({ where: { id: req.params.roomId } });
   if (!room) {
     res.status(404).json({ error: "Room not found" });
@@ -185,7 +197,7 @@ app.get("/rooms/:roomId/sessions", async (req, res) => {
   });
 });
 
-app.post("/rooms/:roomId/sessions", attachAuth, async (req, res) => {
+app.post("/rooms/:roomId/sessions", attachAuth, async (req:Request, res: Response) => {
   const room = await prisma.room.findUnique({ where: { id: req.params.roomId } });
   if (!room) {
     res.status(404).json({ error: "Room not found" });
@@ -204,7 +216,7 @@ app.post("/rooms/:roomId/sessions", attachAuth, async (req, res) => {
   });
 });
 
-app.get("/sessions/:sessionId", async (req, res) => {
+app.get("/sessions/:sessionId", async (req:Request, res: Response) => {
   const session = await prisma.session.findUnique({ where: { id: req.params.sessionId } });
   if (!session) {
     res.status(404).json({ error: "Session not found" });
@@ -219,7 +231,7 @@ app.get("/sessions/:sessionId", async (req, res) => {
   });
 });
 
-app.patch("/sessions/:sessionId", attachAuth, async (req, res) => {
+app.patch("/sessions/:sessionId", attachAuth, async (req:Request, res: Response) => {
   const session = await prisma.session.findUnique({ where: { id: req.params.sessionId } });
   if (!session) {
     res.status(404).json({ error: "Session not found" });
@@ -247,7 +259,7 @@ app.patch("/sessions/:sessionId", attachAuth, async (req, res) => {
   });
 });
 
-app.post("/sessions/:sessionId/recordings", attachAuth, async (req, res) => {
+app.post("/sessions/:sessionId/recordings", attachAuth, async (req:Request, res: Response) => {
   const session = await prisma.session.findUnique({ where: { id: req.params.sessionId } });
   if (!session) {
     res.status(404).json({ error: "Session not found" });
@@ -268,7 +280,7 @@ app.post("/sessions/:sessionId/recordings", attachAuth, async (req, res) => {
   });
 });
 
-app.get("/sessions/:sessionId/recordings", async (req, res) => {
+app.get("/sessions/:sessionId/recordings", async (req:Request, res: Response) => {
   const session = await prisma.session.findUnique({ where: { id: req.params.sessionId } });
   if (!session) {
     res.status(404).json({ error: "Session not found" });
@@ -287,7 +299,7 @@ app.get("/sessions/:sessionId/recordings", async (req, res) => {
   });
 });
 
-app.patch("/recordings/:recordingId", attachAuth, async (req, res) => {
+app.patch("/recordings/:recordingId", attachAuth, async (req:Request, res: Response) => {
   const recording = await prisma.recording.findUnique({
     where: { id: req.params.recordingId }
   });
@@ -318,7 +330,7 @@ app.patch("/recordings/:recordingId", attachAuth, async (req, res) => {
   });
 });
 
-app.get("/recordings/:recordingId", async (req, res) => {
+app.get("/recordings/:recordingId", async (req:Request, res: Response) => {
   const recording = await prisma.recording.findUnique({
     where: { id: req.params.recordingId }
   });
@@ -333,7 +345,7 @@ app.get("/recordings/:recordingId", async (req, res) => {
   });
 });
 
-app.post("/rooms/:roomId/participants", attachAuth, async (req, res) => {
+app.post("/rooms/:roomId/participants", attachAuth, async (req:Request, res: Response) => {
   const room = await prisma.room.findUnique({ where: { id: req.params.roomId } });
   if (!room) {
     res.status(404).json({ error: "Room not found" });
@@ -363,7 +375,7 @@ app.post("/rooms/:roomId/participants", attachAuth, async (req, res) => {
   });
 });
 
-app.get("/rooms/:roomId/participants", async (req, res) => {
+app.get("/rooms/:roomId/participants", async (req:Request, res: Response) => {
   const room = await prisma.room.findUnique({ where: { id: req.params.roomId } });
   if (!room) {
     res.status(404).json({ error: "Room not found" });
