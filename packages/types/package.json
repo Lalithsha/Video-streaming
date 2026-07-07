@@ -1,0 +1,24 @@
+{
+  "name": "@video-streaming/types",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./room": "./room.ts",
+    "./auth": "./src/auth.ts",
+    "./media": "./src/media.ts",
+    "./signaling-events": "./src/signaling-events.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}
