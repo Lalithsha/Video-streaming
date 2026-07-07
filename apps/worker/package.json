@@ -8,7 +8,8 @@
   },
   "dependencies": {
     "bullmq": "^5.14.3",
-    "ioredis": "^5.4.1"
+    "ioredis": "^5.4.1",
+    "@video-streaming/types": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.15.7",

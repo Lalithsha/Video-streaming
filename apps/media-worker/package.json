@@ -7,7 +7,8 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "mediasoup": "^3.14.14"
+    "mediasoup": "^3.14.14",
+    "@video-streaming/types": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.15.7",
