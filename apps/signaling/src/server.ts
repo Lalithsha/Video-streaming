@@ -1,13 +1,17 @@
+import {env} from "@video-streaming/config/env"
+import {register} from "@video-streaming/config/instrumentation"
 import { randomUUID } from "crypto";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { getToken } from "next-auth/jwt";
 
-const port = Number(process.env.SIGNALING_PORT ?? "4001");
-const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
-const mediaWorkerUrl = process.env.MEDIA_WORKER_URL ?? "";
-const authRequired = (process.env.AUTH_REQUIRED ?? "false") === "true";
-const authSecret = process.env.NEXTAUTH_SECRET;
+register();
+
+const port = Number(env.SIGNALING_PORT ?? "4001");
+const webOrigin = env.WEB_ORIGIN ?? "http://localhost:3000";
+const mediaWorkerUrl = env.MEDIA_WORKER_URL ?? "";
+const authRequired = (env.AUTH_REQUIRED ?? "false") === "true";
+const authSecret = env.NEXTAUTH_SECRET;
 
 const startedAt = new Date();
 

@@ -1,0 +1,14 @@
+{
+  "name": "@video-streaming/config",
+  "private": true,
+  "exports": {
+    "./env": "./env.ts",
+    "./instrumentation": "./instrumentation.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

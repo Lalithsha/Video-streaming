@@ -1,9 +1,13 @@
+import env from "@video-streaming/config/env";
+import {register} from "@video-streaming/config/instrumentation"
 import http from "http";
 import { Queue, QueueEvents, Worker } from "bullmq";
 import IORedis from "ioredis";
 
-const connection = new IORedis(process.env.REDIS_URL ?? "redis://localhost:6379");
-const port = Number(process.env.WORKER_PORT ?? "4003");
+register()
+
+const connection = new IORedis(env.REDIS_URL ?? "redis://localhost:6379");
+const port = Number(env.WORKER_PORT ?? "4003");
 const startedAt = new Date();
 
 const recordQueueName = "recordings";

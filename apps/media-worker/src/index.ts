@@ -1,3 +1,5 @@
+import env from "@video-streaming/config/env"
+import {register} from "@video-streaming/config/instrumentation"
 import { randomUUID } from "crypto";
 import http from "http";
 import os from "os";
@@ -10,8 +12,10 @@ import {
   type Worker
 } from "mediasoup";
 
-const port = Number(process.env.MEDIA_WORKER_PORT ?? "4002");
-const workerCount = Number(process.env.MEDIASOUP_WORKERS ?? os.cpus().length);
+register();
+
+const port = Number(env.MEDIA_WORKER_PORT ?? "4002");
+const workerCount = Number(env.MEDIASOUP_WORKERS ?? os.cpus().length);
 
 const startedAt = new Date();
 

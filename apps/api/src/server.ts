@@ -1,3 +1,5 @@
+import {env } from "@video-streaming/config/env"
+import {register} from "@video-streaming/config/instrumentation"
 import express from "express";
 import  {Request, Response, NextFunction} from "express";
 import { randomUUID } from "crypto";
@@ -5,16 +7,20 @@ import { PrismaClient, RecordingStatus, SessionStatus, ParticipantRole } from ".
 import { getToken } from "next-auth/jwt";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
+import { z } from "zod";
+import { JoinRoomRequestSchema, JoinRoomResponseSchema, CreateRoomRequestSchema, CreateRoomResponseSchema, LeaveRoomRequestSchema, LeaveRoomResponseSchema, GetRoomRequestSchema, GetRoomResponseSchema, GetRoomsRequestSchema, GetRoomsResponseSchema, UpdateRoomRequestSchema, UpdateRoomResponseSchema } from "@video-streaming/types/room";
 
+
+register();
 
 const app = express();
-const port = Number(process.env.API_PORT ?? "4000");
-const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
-const authRequired = (process.env.AUTH_REQUIRED ?? "false") === "true";
-const authSecret = process.env.NEXTAUTH_SECRET;
+const port = Number(env.API_PORT ?? "4000");
+const webOrigin = env.WEB_ORIGIN ?? "http://localhost:3000";
+const authRequired = (env.AUTH_REQUIRED ?? "false") === "true";
+const authSecret = env.NEXTAUTH_SECRET;
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: env.DATABASE_URL,
 });
 const adapter = new PrismaPg(pool);
 

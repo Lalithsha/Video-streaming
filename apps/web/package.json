@@ -16,7 +16,8 @@
     "react-dom": "^18.3.1",
     "socket.io-client": "^4.7.5",
     "zustand": "^4.5.5",
-    "@video-streaming/types": "workspace:*"
+    "@video-streaming/types": "workspace:*",
+    "@video-streaming/config": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
