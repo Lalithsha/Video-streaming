@@ -1,5 +1,6 @@
 import env from "@video-streaming/config/env"
 import {register} from "@video-streaming/config/instrumentation"
+import { logger } from "@video-streaming/logger"
 import { randomUUID } from "crypto";
 import http from "http";
 import os from "os";
@@ -321,10 +322,10 @@ process.on("SIGTERM", shutdown);
 createWorkers()
   .then(() => {
     server.listen(port, () => {
-      console.log(`Media worker service running on :${port}`);
+      logger.info(`Media worker service running on :${port}`);
     });
   })
   .catch((error) => {
-    console.error("Failed to start MediaSoup workers", error);
+    logger.error({ error }, "Failed to start MediaSoup workers");
     process.exit(1);
   });

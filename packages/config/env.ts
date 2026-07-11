@@ -1,17 +1,17 @@
 // src/config/env.ts
 import z from 'zod';
 
-// export enum AppEnv {
-//   Development = 'development',
-//   Staging = 'staging',
-//   Production = 'production',
-// }
+export enum AppEnv {
+  Development = 'development',
+  Staging = 'staging',
+  Production = 'production',
+}
 
 // Define the schema for the environment variables
 const envSchema = z.object({
-//   APP_ENV: z.enum([AppEnv.Development, AppEnv.Staging, AppEnv.Production], {
-//     message: 'Invalid environment' as const,
-//   }),
+  APP_ENV: z.enum([AppEnv.Development, AppEnv.Staging, AppEnv.Production], {
+    message: 'Invalid environment' as const,
+  }).default(AppEnv.Development),
   WEB_ORIGIN: z.url(),
   NEXT_PUBLIC_API_URL: z.url(),
   NEXT_PUBLIC_SIGNALING_URL: z.url(),
@@ -26,7 +26,8 @@ const envSchema = z.object({
   WORKER_PORT: z.coerce.number(),
   MEDIA_WORKER_PORT: z.coerce.number(),
   MEDIASOUP_WORKERS: z.string().optional(),
-  MEDIA_WORKER_URL: z.url()
+  MEDIA_WORKER_URL: z.url(),
+  LOG_LEVEL: z.string()
 });
 
 // Function to validate the environment variables

@@ -16,7 +16,8 @@
     "pg": "^8.22.0",
     "zod": "^4.4.3",
     "@video-streaming/types": "workspace:*",
-    "@video-streaming/config": "workspace:*"
+    "@video-streaming/config": "workspace:*",
+    "@video-streaming/logger": "workspace:*"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

@@ -10,7 +10,8 @@
     "bullmq": "^5.14.3",
     "ioredis": "^5.4.1",
     "@video-streaming/types": "workspace:*",
-    "@video-streaming/config":"workspace:*"
+    "@video-streaming/config":"workspace:*",
+    "@video-streaming/logger":"workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.15.7",

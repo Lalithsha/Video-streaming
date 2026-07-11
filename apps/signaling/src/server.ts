@@ -1,5 +1,6 @@
 import {env} from "@video-streaming/config/env"
 import {register} from "@video-streaming/config/instrumentation"
+import { logger, runWithContext } from "@video-streaming/logger"
 import { randomUUID } from "crypto";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -202,21 +203,40 @@ const callMediaWorker = async <T>(
 };
 
 io.on("connection", (socket) => {
-  resolveAuth(socket)
-    .then((auth) => {
-      if (authRequired && !auth) {
-        socket.emit("error", "Unauthorized");
-        socket.disconnect();
-        return;
-      }
-      socket.data.auth = auth;
-    })
-    .catch(() => {
-      if (authRequired) {
-        socket.emit("error", "Unauthorized");
-        socket.disconnect();
-      }
+  const correlationId =
+    (socket.handshake.auth?.correlationId as string) ||
+    (socket.handshake.headers["x-correlation-id"] as string) ||
+    randomUUID();
+
+  socket.data.correlationId = correlationId;
+
+  runWithContext({ correlationId }, () => {
+    logger.info({ socketId: socket.id }, "Socket connected");
+
+    socket.use(([event, ...args], next) => {
+      runWithContext({ correlationId: socket.data.correlationId }, () => {
+        next();
+      });
     });
+
+    resolveAuth(socket)
+      .then((auth) => {
+        if (authRequired && !auth) {
+          logger.warn({ socketId: socket.id }, "Unauthorized socket connection rejected");
+          socket.emit("error", "Unauthorized");
+          socket.disconnect();
+          return;
+        }
+        socket.data.auth = auth;
+      })
+      .catch((err) => {
+        logger.error({ socketId: socket.id, err }, "Socket auth error");
+        if (authRequired) {
+          socket.emit("error", "Unauthorized");
+          socket.disconnect();
+        }
+      });
+  });
 
   socket.on("room:join", async (payload, callback) => {
     if (authRequired && !socket.data.auth) {
@@ -455,5 +475,5 @@ io.on("connection", (socket) => {
 });
 
 httpServer.listen(port, () => {
-  console.log(`Signaling server running on :${port}`);
+  logger.info(`Signaling server running on :${port}`);
 });

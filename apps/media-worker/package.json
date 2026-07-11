@@ -8,7 +8,9 @@
   },
   "dependencies": {
     "mediasoup": "^3.14.14",
-    "@video-streaming/types": "workspace:*"
+    "@video-streaming/types": "workspace:*",
+    "@video-streaming/config": "workspace:*",
+    "@video-streaming/logger": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.15.7",

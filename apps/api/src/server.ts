@@ -1,5 +1,7 @@
 import {env } from "@video-streaming/config/env"
 import {register} from "@video-streaming/config/instrumentation"
+import { logger } from "@video-streaming/logger";
+import { correlationIdMiddleware } from "./middleware/correlation";
 import express from "express";
 import  {Request, Response, NextFunction} from "express";
 import { randomUUID } from "crypto";
@@ -14,6 +16,7 @@ import { JoinRoomRequestSchema, JoinRoomResponseSchema, CreateRoomRequestSchema,
 register();
 
 const app = express();
+app.use(correlationIdMiddleware);
 const port = Number(env.API_PORT ?? "4000");
 const webOrigin = env.WEB_ORIGIN ?? "http://localhost:3000";
 const authRequired = (env.AUTH_REQUIRED ?? "false") === "true";
@@ -401,5 +404,5 @@ app.get("/rooms/:roomId/participants", async (req:Request, res: Response) => {
 });
 
 app.listen(port, () => {
-  console.log(`API server running on :${port}`);
+  logger.info(`API server running on :${port}`);
 });

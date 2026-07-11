@@ -1,5 +1,6 @@
 import env from "@video-streaming/config/env";
 import {register} from "@video-streaming/config/instrumentation"
+import { logger, runWithContext } from "@video-streaming/logger";
 import http from "http";
 import { Queue, QueueEvents, Worker } from "bullmq";
 import IORedis from "ioredis";
@@ -19,15 +20,18 @@ const uploadQueue = new Queue(uploadQueueName, { connection });
 const recordWorker = new Worker(
   recordQueueName,
   async (job) => {
-    console.log("Processing recording job", job.id, job.name, job.data);
-    if (job.name === "finalize-recording") {
-      return {
-        recordingId: job.data.recordingId,
-        status: "ready",
-        completedAt: new Date().toISOString()
-      };
-    }
-    return { ok: true };
+    const correlationId = job.data?.correlationId;
+    return runWithContext({ correlationId }, async () => {
+      logger.info({ jobId: job.id, jobName: job.name }, "Processing recording job");
+      if (job.name === "finalize-recording") {
+        return {
+          recordingId: job.data.recordingId,
+          status: "ready",
+          completedAt: new Date().toISOString()
+        };
+      }
+      return { ok: true };
+    });
   },
   { connection, concurrency: 4 }
 );
@@ -35,12 +39,15 @@ const recordWorker = new Worker(
 const uploadWorker = new Worker(
   uploadQueueName,
   async (job) => {
-    console.log("Processing upload job", job.id, job.name, job.data);
-    if (job.name === "upload-recording") {
-      const storageUrl = `s3://example-bucket/${job.data?.recordingId ?? "unknown"}`;
-      return { url: storageUrl, uploadedAt: new Date().toISOString() };
-    }
-    return { ok: true };
+    const correlationId = job.data?.correlationId;
+    return runWithContext({ correlationId }, async () => {
+      logger.info({ jobId: job.id, jobName: job.name }, "Processing upload job");
+      if (job.name === "upload-recording") {
+        const storageUrl = `s3://example-bucket/${job.data?.recordingId ?? "unknown"}`;
+        return { url: storageUrl, uploadedAt: new Date().toISOString() };
+      }
+      return { ok: true };
+    });
   },
   { connection, concurrency: 2 }
 );
@@ -83,19 +90,19 @@ const server = http.createServer(async (req, res) => {
 });
 
 recordWorker.on("failed", (job, error) => {
-  console.error("Recording job failed", job?.id, error);
+  logger.error({ jobId: job?.id, error }, "Recording job failed");
 });
 
 uploadWorker.on("failed", (job, error) => {
-  console.error("Upload job failed", job?.id, error);
+  logger.error({ jobId: job?.id, error }, "Upload job failed");
 });
 
 recordEvents.on("completed", ({ jobId, returnvalue }) => {
-  console.log("Recording job completed", jobId, returnvalue);
+  logger.info({ jobId, returnvalue }, "Recording job completed");
 });
 
 uploadEvents.on("completed", ({ jobId, returnvalue }) => {
-  console.log("Upload job completed", jobId, returnvalue);
+  logger.info({ jobId, returnvalue }, "Upload job completed");
 });
 
 const shutdown = async () => {
@@ -115,5 +122,5 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 server.listen(port, () => {
-  console.log(`Worker service running on :${port}`);
+  logger.info(`Worker service running on :${port}`);
 });

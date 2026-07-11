@@ -9,7 +9,8 @@
   "dependencies": {
     "next-auth": "^4.24.7",
     "socket.io": "^4.7.5",
-    "@video-streaming/config":"workspace:*"
+    "@video-streaming/config":"workspace:*",
+    "@video-streaming/logger":"workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.15.7",
