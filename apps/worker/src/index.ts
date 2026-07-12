@@ -62,7 +62,7 @@ const jsonResponse = (res: http.ServerResponse, status: number, body: unknown) =
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  if (req.method === "GET" && url.pathname === "/health") {
+  if (req.method === "GET" && url.pathname === "/health/liveness") {
     jsonResponse(res, 200, {
       status: "ok",
       redisStatus: connection.status,
@@ -71,6 +71,23 @@ const server = http.createServer(async (req, res) => {
     });
     return;
   }
+
+  if(req.method==="GET" && url.pathname==="/health/readiness"){
+    try {
+      // Ping the existing redis connection
+
+      await connection.ping();
+      jsonResponse(res, 200, {status: "ready"})
+
+    } catch (error) {
+      jsonResponse(res, 503, {
+        status:"unhealthy",
+        error: error instanceof Error ? error.message : "Redis connection down"
+      })
+    }
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/stats") {
     const [recordCounts, uploadCounts] = await Promise.all([
       recordQueue.getJobCounts(),

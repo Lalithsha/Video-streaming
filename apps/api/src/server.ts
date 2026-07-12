@@ -2,6 +2,7 @@ import {env } from "@video-streaming/config/env"
 import {register} from "@video-streaming/config/instrumentation"
 import { logger } from "@video-streaming/logger";
 import { correlationIdMiddleware } from "./middleware/correlation";
+import createHealthRouter from "./routes/health";
 import express from "express";
 import  {Request, Response, NextFunction} from "express";
 import { randomUUID } from "crypto";
@@ -115,9 +116,7 @@ const attachAuth = async (
   next();
 };
 
-app.get("/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok" });
-});
+app.use("/health", createHealthRouter(prisma));
 
 app.get("/stats", async (_req: Request, res: Response) => {
   const [roomsCount, sessionsCount, recordingsCount, participantsCount, liveSessions] =

@@ -1,0 +1,34 @@
+import env from "@video-streaming/config/env";
+import { Request, Response, Router } from "express";
+import { PrismaClient } from "../generated/prisma";
+import Redis from "ioredis";
+
+export default function createHealthRouter(prisma: PrismaClient): Router {
+  const router = Router();
+  const redis = new Redis(env.REDIS_URL || "redis://localhost:6379");
+
+  router.get("/liveness", (req: Request, res: Response) => {
+    res.status(200).json({ status: "ok" });
+  });
+
+  router.get("/readiness", async (req: Request, res: Response) => {
+    try {
+      const dbPing = prisma.$queryRaw`SELECT 1`;
+      const timeout = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Postgres query timeout")), 2000);
+      });
+      await Promise.race([dbPing, timeout]);
+
+      await redis.ping();
+
+      res.status(200).json({ status: "ready" });
+    } catch (error) {
+      res.status(503).json({
+        status: "unhealthy",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  return router;
+} 
