@@ -12,7 +12,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { z } from "zod";
 import { JoinRoomRequestSchema, JoinRoomResponseSchema, CreateRoomRequestSchema, CreateRoomResponseSchema, LeaveRoomRequestSchema, LeaveRoomResponseSchema, GetRoomRequestSchema, GetRoomResponseSchema, GetRoomsRequestSchema, GetRoomsResponseSchema, UpdateRoomRequestSchema, UpdateRoomResponseSchema } from "@video-streaming/types/room";
-
+import {Server} from 'http';
 
 register();
 
@@ -22,6 +22,10 @@ const port = Number(env.API_PORT ?? "4000");
 const webOrigin = env.WEB_ORIGIN ?? "http://localhost:3000";
 const authRequired = (env.AUTH_REQUIRED ?? "false") === "true";
 const authSecret = env.NEXTAUTH_SECRET;
+
+
+export let server:Server;
+export let isShuttingDown:boolean=false;
 
 const pool = new Pool({
   connectionString: env.DATABASE_URL,
@@ -116,7 +120,7 @@ const attachAuth = async (
   next();
 };
 
-app.use("/health", createHealthRouter(prisma));
+app.use("/health", createHealthRouter(prisma, () => isShuttingDown));
 
 app.get("/stats", async (_req: Request, res: Response) => {
   const [roomsCount, sessionsCount, recordingsCount, participantsCount, liveSessions] =
@@ -402,6 +406,61 @@ app.get("/rooms/:roomId/participants", async (req:Request, res: Response) => {
   });
 });
 
-app.listen(port, () => {
+server = app.listen(port, () => {
   logger.info(`API server running on :${port}`);
 });
+
+
+// Graceful shutdown handler
+export async function shutdown(signal: string ) {
+  logger.info(`Received ${signal}, starting graceful shutdown...`);
+
+  if (isShuttingDown) {
+    logger.info('Shutdown already in progress');
+    return;
+  }
+  isShuttingDown = true;
+
+  // Safety force-exit timeout (10 seconds)
+  const forceCloseTimeout = setTimeout(async () => {
+    logger.warn('Forcing remaining connections closed due to timeout');
+    try {
+      await prisma.$disconnect();
+    } catch (error) {
+      logger.error({error},"Error during forced database disconnect")
+    }
+    process.exit(1);
+  }, 10000); // 1 second timeout
+
+  try {
+    // 2. Stop accepting new connections and wait for active requests to complete
+    if(server){
+      await new Promise<void>((resolve, reject)=>{
+        server.close(async(err)=>{
+          if(err) reject(err);
+          else resolve()
+        })
+      })
+      logger.info("HTTP Server closed")
+    }
+
+    // 3. disconnect database client cleanly
+    await prisma.$disconnect();
+    logger.info("Database client disconnected")
+
+    // 4. Clean up the timeout and exit successfully
+    clearTimeout(forceCloseTimeout);
+    process.exit(0);
+
+  } catch (error) {
+    logger.error({error},"Error during graceful shutdown")
+    clearTimeout(forceCloseTimeout);
+    process.exit(1)
+  }
+
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+

@@ -122,17 +122,56 @@ uploadEvents.on("completed", ({ jobId, returnvalue }) => {
   logger.info({ jobId, returnvalue }, "Upload job completed");
 });
 
+
+let isShuttingDown:boolean = false;
+
 const shutdown = async () => {
-  await recordWorker.close();
-  await uploadWorker.close();
-  await recordEvents.close();
-  await uploadEvents.close();
-  await recordQueue.close();
-  await uploadQueue.close();
-  await connection.quit();
-  server.close(() => {
+
+  logger.info("Shutting down background worker services ... ")
+
+  if(isShuttingDown) return;
+  isShuttingDown=true;
+
+  const forceCloseTimeout = setTimeout(()=>{
+    logger.warn("Force shutting down due to timeout")
+    process.exit(1);
+  },10000);
+
+  try {
+
+    // 2. stop accepting new HTTP server request first 
+    if(server){
+      await new Promise<void>((resolve, reject)=>{
+        server.close((err)=>{
+          if(err) reject(err);
+          else resolve();
+        })
+      })
+      logger.info("HTTP server closed")
+    }
+
+    // 3. Close bullMQ workers and queue event listeners
+    await recordWorker.close();
+    await uploadWorker.close();
+    await recordEvents.close();
+    await uploadEvents.close();
+  logger.info("closed queue workers and event listeners")
+
+    // 4. close BullMQ queue and redis connection
+    await recordQueue.close();
+    await uploadQueue.close(); 
+    await connection.quit();
+    logger.info("closed queues and redis connections") 
+
+    clearTimeout(forceCloseTimeout);
     process.exit(0);
-  });
+
+} catch (err) {
+    logger.error({ err }, "Error during graceful shutdown");
+    clearTimeout(forceCloseTimeout);
+    process.exit(1);
+ }
+
 };
 
 process.on("SIGINT", shutdown);

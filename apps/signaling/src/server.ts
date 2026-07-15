@@ -14,6 +14,8 @@ const mediaWorkerUrl = env.MEDIA_WORKER_URL ?? "";
 const authRequired = (env.AUTH_REQUIRED ?? "false") === "true";
 const authSecret = env.NEXTAUTH_SECRET;
 
+let isShuttingDown:boolean=false;
+
 const startedAt = new Date();
 
 const jsonResponse = (res: import("http").ServerResponse, status: number, body: unknown) => {
@@ -477,3 +479,65 @@ io.on("connection", (socket) => {
 httpServer.listen(port, () => {
   logger.info(`Signaling server running on :${port}`);
 });
+
+
+// Graceful shutdown handler
+async function shutdown(signal: string ) {
+  logger.info(`Received ${signal}, starting graceful shutdown...`);
+
+  if (isShuttingDown) {
+    logger.info('Shutdown already in progress');
+    return;
+  }
+  isShuttingDown = true;
+
+  // 1. Safety force-exit timeout (10 seconds)
+  const forceCloseTimeout = setTimeout(async () => {
+    logger.warn('Forcing remaining connections closed due to timeout');
+    try {
+      // await prisma.$disconnect();
+    } catch (error) {
+      logger.error({error},"Error during forced database disconnect")
+    }
+    process.exit(1);
+  }, 10000); // 1 second timeout
+
+  try {
+    // 2. Close Socket.IO server (disconnects all connected sockets)
+    if(io){
+       io.close();
+       logger.info("Socket.IO server closed")
+    }
+
+    // 3.  Stop accepting new HTTP connections and wait for active requests to finish
+    if(httpServer){
+      await new Promise<void>((resolve,reject)=>{
+          httpServer.close((err)=>{
+            if(err) reject(err);
+            else resolve();
+          })
+      })
+      logger.info("HTTP server closed")
+    }
+
+    // 4. Clean up the timeout and exit successfully
+    clearTimeout(forceCloseTimeout);
+    process.exit(0);
+
+  } catch (error) {
+    logger.error({error},"Error during graceful shutdown")
+    clearTimeout(forceCloseTimeout);
+    process.exit(1)
+  }
+
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+
+
+
+
+
+

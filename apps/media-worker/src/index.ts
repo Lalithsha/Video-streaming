@@ -299,21 +299,55 @@ const server = http.createServer(async (req, res) => {
   jsonResponse(res, 404, { error: "Not found" });
 });
 
+let isShuttingDown:boolean=false;
+
 const shutdown = async () => {
-  console.log("Shutting down media worker service...");
-  for (const room of rooms.values()) {
-    for (const producer of room.producers.values()) {
-      producer.close();
+  logger.info("Shutting down media worker service...");
+
+  if(isShuttingDown) return;
+  isShuttingDown=true;
+  
+  // 1. safety force exit timoout 10 seconds 
+  const forceCloseTimeout = setTimeout(() => {
+    logger.warn("Force shutdown due to timeout")
+    process.exit(1);
+  }, 10000);
+
+  try {
+      if(server){
+        await new Promise<void>((resolve, reject)=>{
+          server.close((err)=>{
+            if(err) reject(err);
+            else resolve();
+          })
+        })
+        logger.info("Http server closed")
+      }
+
+    // 3. Close Mediasoup producers, transports, routers
+    for (const room of rooms.values()) {
+      for (const producer of room.producers.values()) {
+        producer.close();
+      }
+      for (const transport of room.transports.values()) {
+        transport.close();
+      }
+      await room.router.close();
     }
-    for (const transport of room.transports.values()) {
-      transport.close();
+
+    // 4. Close Mediasoup workers
+    for (const worker of workers) {
+      worker.close();
     }
-    await room.router.close();
+
+    clearTimeout(forceCloseTimeout);
+    process.exit(0);
+
+  } catch (error) {
+    logger.error({ error }, "Error during graceful shutdown");
+    clearTimeout(forceCloseTimeout);
+    process.exit(1);
   }
-  for (const worker of workers) {
-    worker.close();
-  }
-  process.exit(0);
 };
 
 process.on("SIGINT", shutdown);
